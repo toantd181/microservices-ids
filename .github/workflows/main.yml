@@ -1,0 +1,132 @@
+name: MLOps CI Pipeline
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+env:
+  ML_ENGINE_IMAGE: ids-ml-engine 
+  GO_API_IMAGE: ids-go-api 
+  IMAGE_TAG: ${{github.sha}}
+
+jobs:
+  build-and-test:
+    name: Build, Start & Integration Test 
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Cache Docker layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{runner.os}}-buildx-${{hashFiles('**/Dockerfile', '**/requirements.txt', '**/go.mod')}}
+          restore-keys: |
+            ${{runner.os}}-buildx-
+
+      - name: Build ML Engine image 
+        uses: docker/build-push-action@v5
+        with:
+          context: ./python-engine 
+          push: false
+          tags: ${{env.ML_ENGINE_IMAGE}}:${{env.IMAGE_TAG}}
+          cache-from: type=local, src=/tmp/.buildx-cache
+          cache-to: type=local, dest=/tmp/.buildx-cache-new, mode=max
+          load: true
+      
+      - name: Build Go API image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./go-api
+          push: false
+          tag: ${{env.GO_API_IMAGE}}:${{env.IMAGE_TAG}}
+          cache-from: type=local, src=/tmp/.buildx-cache
+          cache-to: type=local, dest=/tmp/.buildx-cache-new, mode = max
+          load: true 
+
+      - name: Move build cache
+        run: |
+          rm -rf /tmp/.buildx-cache 
+          mv /tmp/.build-cache-new /tmp/.buildx-cache
+
+      - name: Start services with Docker Compose
+        run: |
+          export ML_ENGINE_IMAGE=${{env.ML_ENGINE_IMAGE}}
+          export GO_API_IMAGE=${{env.GO_API_IMAGE}}
+          export IMAGE_TAG=${{env.IMAGE_TAG}}
+          docker compose up -d 
+
+      - name: Wait for services to be healthy
+        run: |
+          echo "Waiting for ML engine to be healthy..."
+          max_retries = 30
+          count = 0
+          until curl -sf http://localhost:8080/health > /dev/null; do 
+            count=$((count + 1))
+            if [$count -ge $max_retires]; then 
+              echo "Services failed to become healthy after ${max_retries} attempts"
+              docker compose logs
+              exit 1
+            fi 
+            echo "Attempt ${count}/${max_retries} - waiting 3s..."
+            sleep 3
+          done 
+
+          echo "Services are healthy!"
+
+      - name: Run Integration tests
+        run: |
+          echo "=== Test 1: Gateway Health Check ==="
+          HEALTH=$(curl -sf http://localhost:8080/health)
+          echo "$HEALTH"
+          echo "$HEALTH" | grep -q '"status":"healthy"' || \
+            { echo "FAIL: health check failed"; exit 1; }
+          echo "PASS"
+
+          echo "=== Test 2: Normal Traffic Prediction ==="
+          NORMAL=$(curl -sf -X POST http://localhost:8080/predict \
+            -H "Content-Type: application/json" \
+            -d '{"features": [0.5, 0.4, 0.6, 0.5, 0.5, 0.5]}')
+          echo "$NORMAL"
+          echo "$NORMAL" | grep -q '"Prediction":"normal"' || \
+            { echo "FAIL: normal prediction failed"; exit 1; }
+          echo "PASS"
+
+          echo "=== Test 3: Anomaly Detection ==="
+          ANOMALY=$(curl -sf -X POST http://localhost:8080/predict \
+            -H "Content-Type: application/json" \
+            -d '{"features": [9999.0, 8888.0, 7777.0, 6666.0, 5555.0, 4444.0]}')
+          echo "$ANOMALY"
+          echo "$ANOMALY" | grep -q '"Prediction":"anomaly"' || \
+            { echo "FAIL: anomaly detection failed"; exit 1; }
+          echo "PASS"
+
+          echo "=== Test 4: Input Validation ==="
+          # curl -f fails on 4xx/5xx, so we use -o to capture output
+          # and check the HTTP status code manually
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X POST http://localhost:8080/predict \
+            -H "Content-Type: application/json" \
+            -d '{"features": [1.0, 2.0]}')
+          echo "HTTP Status: $HTTP_STATUS"
+          [ "$HTTP_STATUS" = "400" ] || \
+            { echo "FAIL: expected 400, got $HTTP_STATUS"; exit 1; }
+          echo "PASS"
+
+          echo "=== All tests passed ==="
+
+      - name: Print service logs on failure
+        if: failure()
+        run: docker compose logs
+
+      - name: Tear down services
+        if: always()
+        run: docker compose down 

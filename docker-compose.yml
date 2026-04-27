@@ -1,0 +1,53 @@
+services:
+  ml-engine:
+    build:
+      context: ./python-engine
+      dockerfile: Dockerfile 
+    image: ${ML_ENGINE_IMAGE:-ids-ml-engine}:${IMAGE_TAG:-dev}
+
+    networks:
+      - internal-net 
+
+    environment:
+      - ENVIRONMENT=development
+      - MODEL_VERSION=1.0.0-dev 
+
+    healthcheck:
+      test: ["CMD", "python", "-c",
+              "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    
+    restart: unless-stopped
+
+  go-api:
+    build: 
+      context: ./go-api
+      dockerfile: Dockerfile
+    image: ${GO_API_IMAGE:-ids-go-api}:${IMAGE_TAG:-dev}
+
+    ports: 
+      - "8080:8080"
+
+    networks:
+      - internal-net 
+
+    environment:
+      - ML_ENGINE_URL=http://ml-engine:8000
+      - PORT=8080
+      - ENVIRONMENT=development
+    
+    depends_on:
+      ml-engine:
+        condition: service_healthy
+
+    restart: unless-stopped 
+
+networks:
+  internal-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
