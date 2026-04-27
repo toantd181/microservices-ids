@@ -25,25 +25,14 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3.10.0
 
-      - name: Cache Docker layers
-        uses: actions/cache@v4.2.3
-        with:
-          path: /tmp/.buildx-cache
-          key: ${{runner.os}}-buildx-${{hashFiles('**/Dockerfile', '**/requirements.txt', '**/go.mod')}}
-          restore-keys: |
-            ${{runner.os}}-buildx-
-
-      - name: Create cache directory
-        run: mkdir -p /tmp/.buildx-cache /tmp/.buildx-cache-new
-
       - name: Build ML Engine image 
         uses: docker/build-push-action@v6.15.0
         with:
           context: ./python-engine 
           push: false
           tags: ${{env.ML_ENGINE_IMAGE}}:${{env.IMAGE_TAG}}
-          cache-from: type=local, src=/tmp/.buildx-cache
-          cache-to: type=local, dest=/tmp/.buildx-cache-new, mode=max
+          cache-from: type=gha
+          cache-to: type=gha, mode=max
           load: true
       
       - name: Build Go API image
@@ -52,14 +41,10 @@ jobs:
           context: ./go-api
           push: false
           tag: ${{env.GO_API_IMAGE}}:${{env.IMAGE_TAG}}
-          cache-from: type=local, src=/tmp/.buildx-cache
-          cache-to: type=local, dest=/tmp/.buildx-cache-new, mode = max
+          cache-from: type=gha
+          cache-to: type=gha, mode = max
           load: true 
 
-      - name: Move build cache
-        run: |
-          rm -rf /tmp/.buildx-cache 
-          mv /tmp/.build-cache-new /tmp/.buildx-cache
 
       - name: Start services with Docker Compose
         run: |
