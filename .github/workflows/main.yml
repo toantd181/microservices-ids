@@ -11,6 +11,7 @@ env:
   ML_ENGINE_IMAGE: ids-ml-engine 
   GO_API_IMAGE: ids-go-api 
   IMAGE_TAG: ${{github.sha}}
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build-and-test:
@@ -19,21 +20,24 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.2.2
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v3.10.0
 
       - name: Cache Docker layers
-        uses: actions/cache@v4
+        uses: actions/cache@v4.2.3
         with:
           path: /tmp/.buildx-cache
           key: ${{runner.os}}-buildx-${{hashFiles('**/Dockerfile', '**/requirements.txt', '**/go.mod')}}
           restore-keys: |
             ${{runner.os}}-buildx-
 
+      - name: Create cache directory
+        run: mkdir -p /tmp/.buildx-cache /tmp/.buildx-cache-new
+
       - name: Build ML Engine image 
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6.15.0
         with:
           context: ./python-engine 
           push: false
@@ -43,7 +47,7 @@ jobs:
           load: true
       
       - name: Build Go API image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6.15.0
         with:
           context: ./go-api
           push: false
