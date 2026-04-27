@@ -32,7 +32,7 @@ jobs:
           push: false
           tags: ${{env.ML_ENGINE_IMAGE}}:${{env.IMAGE_TAG}}
           cache-from: type=gha
-          cache-to: type=gha, mode=max
+          cache-to: type=gha,mode=max
           load: true
       
       - name: Build Go API image
@@ -40,9 +40,9 @@ jobs:
         with:
           context: ./go-api
           push: false
-          tag: ${{env.GO_API_IMAGE}}:${{env.IMAGE_TAG}}
+          tags: ${{env.GO_API_IMAGE}}:${{env.IMAGE_TAG}}
           cache-from: type=gha
-          cache-to: type=gha, mode = max
+          cache-to: type=gha,mode = max
           load: true 
 
 
@@ -56,11 +56,11 @@ jobs:
       - name: Wait for services to be healthy
         run: |
           echo "Waiting for ML engine to be healthy..."
-          max_retries = 30
-          count = 0
+          max_retries=30
+          count=0
           until curl -sf http://localhost:8080/health > /dev/null; do 
             count=$((count + 1))
-            if [$count -ge $max_retires]; then 
+            if [ $count -ge $max_retries ]; then 
               echo "Services failed to become healthy after ${max_retries} attempts"
               docker compose logs
               exit 1

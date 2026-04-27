@@ -8,7 +8,7 @@ from sklearn.ensemble import IsolationForest
 
 logging.basicConfig(
     level=logging.INFO,
-    format = "%(acstime)s [%(levelname)s] %(name)s - %(message)s"
+    format = "%(asctime)s [%(levelname)s] %(name)s - %(message)s"
 )
 logger = logging.getLogger("ml-engine")
 
