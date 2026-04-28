@@ -152,7 +152,7 @@ jobs:
           load: true
 
       - name: Scan ML Engine image with Trivy 
-        uses: aquasecurity/trivy-action@0.30.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{env.ML_ENGINE_IMAGE}}:${{env.IMAGE_TAG}}
           format: table
@@ -162,7 +162,7 @@ jobs:
           severity: CRITICAL, HIGH
 
       - name: Scan Go API image with Trivy 
-        uses: aquasecurity/trivy-action@0.30.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{env.GO_API_IMAGE}}:${{env.IMAGE_TAG}}
           format: table
@@ -172,7 +172,7 @@ jobs:
           severity: CRITICAL, HIGH
 
       - name: Generate SARIF report for ML Engine 
-        uses: aquasecurity/trivy-action@0.30.0
+        uses: aquasecurity/trivy-action@v0.36.0
         if: always()
         with:
           image-ref: ${{env.ML_ENGINE_IMAGE}}:${{env.IMAGE_TAG}}
@@ -183,7 +183,7 @@ jobs:
           severity: CRITICAL, HIGH 
 
       - name: Generate SARIF report for Go API
-        uses: aquasecurity/trivy-action@0.30.0
+        uses: aquasecurity/trivy-action@v0.36.0
         if: always()
         with: 
           image-ref: ${{env.GO_API_IMAGE}}:${{env.IMAGE_TAG}}
