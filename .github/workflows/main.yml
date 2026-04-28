@@ -123,9 +123,9 @@ jobs:
   security-scan:
     name: Trivy Security Scan 
     runs-on: ubuntu-latest
-
     needs: build-and-test
 
+    # BẮT BUỘC CÓ: Cấp quyền ghi báo cáo lên tab Security
     permissions:
       contents: read
       security-events: write
@@ -137,6 +137,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3.10.0
 
+      # --- 1. LOAD IMAGES ---
       - name: Rebuild ML Engine image for scanning
         uses: docker/build-push-action@v6.15.0
         with:
@@ -155,61 +156,35 @@ jobs:
           cache-from: type=gha
           load: true
 
-      - name: Scan ML Engine image with Trivy 
-        uses: aquasecurity/trivy-action@v0.36.0
+      # --- 2. QUÉT VÀ XUẤT THẲNG RA SARIF (Đã tối ưu) ---
+      - name: Run Trivy scan on ML Engine
+        uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{env.ML_ENGINE_IMAGE}}:${{env.IMAGE_TAG}}
-          format: table
-          exit-code: 1
-          ignore-unfixed: true 
-          vuln-type: os, library
-          severity: CRITICAL, HIGH
+          format: 'sarif'
+          output: 'trivy-ml-engine.sarif'
+          severity: 'CRITICAL,HIGH'
 
-      - name: Scan Go API image with Trivy 
-        uses: aquasecurity/trivy-action@v0.36.0
+      - name: Run Trivy scan on Go API
+        uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{env.GO_API_IMAGE}}:${{env.IMAGE_TAG}}
-          format: table
-          exit-code: 1
-          ignore-unfixed: true
-          vuln-type: os, library
-          severity: CRITICAL, HIGH
+          format: 'sarif'
+          output: 'trivy-go-api.sarif'
+          severity: 'CRITICAL,HIGH'
 
-      - name: Generate SARIF report for ML Engine 
-        uses: aquasecurity/trivy-action@v0.36.0
-        if: always()
-        with:
-          image-ref: ${{env.ML_ENGINE_IMAGE}}:${{env.IMAGE_TAG}}
-          format: sarif
-          output: trivy-ml-engine.sarif
-          ignore-unfixed: true
-          vuln-type: os, library
-          severity: CRITICAL, HIGH 
-
-      - name: Generate SARIF report for Go API
-        uses: aquasecurity/trivy-action@v0.36.0
-        if: always()
-        with: 
-          image-ref: ${{env.GO_API_IMAGE}}:${{env.IMAGE_TAG}}
-          format: sarif
-          output: trivy-go-api.sarif
-          ignore-unfixed: true 
-          vuln-type: os, library 
-          severity: CRITICAL, HIGH 
-
+      # --- 3. UPLOAD BÁO CÁO LÊN GITHUB ---
       - name: Upload ML Engine SARIF
         uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
-          sarif_file: |
-            trivy-ml-engine.sarif
+          sarif_file: 'trivy-ml-engine.sarif'
 
-      - name: Upload Go API SARIF 
+      - name: Upload Go API SARIF
         uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
-          sarif_file: |
-            trivy-go-api.sarif
+          sarif_file: 'trivy-go-api.sarif'
             
 
   push-to-registry:
