@@ -119,3 +119,146 @@ jobs:
       - name: Tear down services
         if: always()
         run: docker compose down 
+
+  security-scan:
+    name: Trivy Security Scan 
+    runs-on: ubuntu-latest
+
+    needs: build-and-test
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4.2.2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action
+
+      - name: Rebuild ML Engine image for scanning
+        uses: docker/build-push-action@v6.15.0
+        with:
+          context: ./python-engine
+          push: false
+          tags: ${{env.ML_ENGINE_IMAGE}}:${{env.IMAGE_TAG}}
+          cache-from: type=gha
+          load: true
+
+      - name: Rebuild Go API image for scanning
+        uses: docker/build-push-action@v6.15.0
+        with:
+          context: ./go-api
+          push: false
+          tags: ${{env.GO_API_IMAGE}}:${{env.IMAGE_TAG}}
+          cache-from: type=gha
+          load: true
+
+      - name: Scan ML Engine image with Trivy 
+        uses: aquasecurity/trivy-action@0.30.0
+        with:
+          image-ref: ${{env.ML_ENGINE_IMAGE}}:${{env.IMAGE_TAG}}
+          format: table
+          exit-code: 1
+          ignore-unfixed: true 
+          vuln-type: os, library
+          severity: CRITICAL, HIGH
+
+      - name: Scan Go API image with Trivy 
+        uses: aquasecurity/trivy-action@0.30.0
+        with:
+          image-ref: ${{env.GO_API_IMAGE}}:${{env.IMAGE_TAG}}
+          format: table
+          exit-code: 1
+          ignore-unfixed: true
+          vuln-type: os, library
+          severity: CRITICAL, HIGH
+
+      - name: Generate SARIF report for ML Engine 
+        uses: aquasecurity/trivy-action@0.30.0
+        if: always()
+        with:
+          image-ref: ${{env.ML_ENGINE_IMAGE}}:${{env.IMAGE_TAG}}
+          format: sarif
+          output: trivy-ml-engine.sarif
+          ignore-unfixed: true
+          vuln-type: os, library
+          severity: CRITICAL, HIGH 
+
+      - name: Generate SARIF report for Go API
+        uses: aquasecurity/trivy-action@0.30.0
+        if: always()
+        with: 
+          image-ref: ${{env.GO_API_IMAGE}}:${{env.IMAGE_TAG}}
+          format: sarif
+          output: trivy-go-api.sarif
+          ignore-unfixed: true 
+          vuln-type: os, library 
+          severity: CRITICAL, HIGH 
+
+      - name: Upload Trivy SARIF results
+        uses: github/codeql-action/upload-sarif@v3 
+        if: always()
+        with:
+          sarif_file: |
+            trivy-ml-engine.sarif
+            trivy-go-api.sarif
+
+  push-to-registry:
+    name: Push Images to Docker Hub 
+    runs-on: ubuntu-latest
+
+    needs: [build-and-test, security-scan]
+
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout repo 
+        uses: actions/checkout@v4.2.2
+
+      - name: Set up Docker Buildx 
+        uses: docker/setup-buildx-action@v3.10.0
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3.3.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+            # Build AND push ML Engine with two tags:
+            # 1. git SHA tag: immutable, traceable to exact commit
+            # 2. "latest" tag: always points to most recent main build
+      - name: Build and push ML Engine
+        uses: docker/build-push-action@v6.15.0
+        with:
+          context: ./python-engine
+                # push: true this time — we're actually publishing
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.ML_ENGINE_IMAGE }}:${{ env.IMAGE_TAG }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.ML_ENGINE_IMAGE }}:latest
+          cache-from: type=gha
+
+      - name: Build and push Go API
+        uses: docker/build-push-action@v6.15.0
+        with:
+         context: ./go-api
+         push: true
+         tags: |
+          ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.GO_API_IMAGE }}:${{ env.IMAGE_TAG }}
+          ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.GO_API_IMAGE }}:latest
+         cache-from: type=gha
+
+            # Print the exact image references that were pushed.
+            # This output becomes your deployment artifact reference —
+            # whatever deploys next uses these exact SHA-tagged images.
+      - name: Print pushed image references
+        run: |
+          echo "================================================"
+          echo "Images successfully pushed to Docker Hub"
+          echo "================================================"
+          echo "ML Engine:"
+          echo "  ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.ML_ENGINE_IMAGE }}:${{ env.IMAGE_TAG }}"
+          echo "  ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.ML_ENGINE_IMAGE }}:latest"
+          echo ""
+          echo "Go API:"
+          echo "  ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.GO_API_IMAGE }}:${{ env.IMAGE_TAG }}"
+          echo "  ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.GO_API_IMAGE }}:latest"
+          echo "================================================"
